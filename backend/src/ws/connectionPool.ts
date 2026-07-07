@@ -325,9 +325,20 @@ export function createBybitPool(): ConnectionPoolManager {
 export function createKucoinPool(): ConnectionPoolManager {
   const kucoin: ExchangeShardConfig = {
     name: 'kucoin',
-    defaultConfig: { maxTopicsPerConn: 80, batchSize: 20, batchDelayMs: 500 },
-    getTopics: (symbols) => symbols.map(s => `/contractMarket/tickerV2:${s}`),
+    // Each pair = 2 topics (tickerV2 + instrument). 531 pairs = 1062 topics.
+    // With 160 max/conn = 7 shards, realistic max ~150 topics
+    defaultConfig: { maxTopicsPerConn: 80, batchSize: 10, batchDelayMs: 1000 },
+    getTopics: (symbols) => {
+      // Each symbol gets BOTH tickerV2 AND instrument topics
+      const topics: string[] = [];
+      for (const s of symbols) {
+        topics.push(`/contractMarket/tickerV2:${s}`);
+        topics.push(`/contract/instrument:${s}`);
+      }
+      return topics;
+    },
     subscribe: (ws, topics) => {
+      // KuCoin supports comma-separated topics in single subscribe
       ws.send(JSON.stringify({
         type: 'subscribe',
         topic: topics.join(','),
@@ -339,8 +350,10 @@ export function createKucoinPool(): ConnectionPoolManager {
         const rawSym = msg.topic.split(':')[1];
         const d = msg.data;
         if (!d) return;
-        // KuCoin tickerV2 uses bestBidPrice, not "price"
-        const price = parseFloat(d.bestBidPrice || d.price || '0');
+        // KuCoin tickerV2 sends bestBidPrice/bestAskPrice, not "price"
+        // Use bestAskPrice (price to buy = entry price for longs)
+        // Fallback to bestBidPrice, then average, then 0
+        const price = parseFloat(d.bestAskPrice || d.bestBidPrice || '0');
         onTicker(rawSym, price, 0, 0);
       }
       // Also handle instrument for funding rate + mark price

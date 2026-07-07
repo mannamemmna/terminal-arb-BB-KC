@@ -129,6 +129,25 @@ async function main() {
     // Init pools
     bybitPool.init(allSymbols).catch(() => {});
     kucoinPool.init(allSymbols.map(kucoinName)).catch(() => {});
+    
+    // One-time initial seed from KuCoin REST for mark price + funding rate
+    // (WS instrument topic updates eventually, but seed gives immediate data)
+    setTimeout(async () => {
+      try {
+        const res = await fetch('https://api-futures.kucoin.com/api/v1/contracts/active');
+        const json = await res.json() as any;
+        if (json.code !== '200000' || !json.data) return;
+        for (const item of json.data) {
+          if (!item.symbol.endsWith('USDTM') || item.status !== 'Open') continue;
+          const std = symToStandard.get(item.symbol);
+          if (!std) continue;
+          const price = parseFloat(item.markPrice) || 0;
+          const funding = parseFloat(item.fundingFeeRate) || 0;
+          if (price > 0) calculator.setKucoin(std, price, funding, parseFloat(item.volumeOf24h) || 0);
+        }
+        logFn(`[SEED] KuCoin initial data: ${json.data.length} pairs`);
+      } catch {}
+    }, 5000);
   }).catch(() => {});
 
   // ===== Legacy connectors (REST fallback) =====
@@ -139,24 +158,7 @@ async function main() {
   bybitConn.startRestPolling();
   kucoinConn.startRestPolling();
 
-  // KuCoin REST: fetch ALL available pairs (not just mapped 20) as reliable data source
-  setInterval(async () => {
-    try {
-      const res = await fetch('https://api-futures.kucoin.com/api/v1/contracts/active');
-      const json = await res.json() as any;
-      if (json.code !== '200000' || !json.data) return;
-      for (const item of json.data) {
-        if (!item.symbol.endsWith('USDTM') || item.status !== 'Open') continue;
-        const sym = item.symbol;
-        const std = symToStandard.get(sym) || calculator.keys().find((k: string) => k.startsWith(sym.replace('USDTM', ''))) || sym.replace('USDTM', 'USDT');
-        const price = parseFloat(item.markPrice) || 0;
-        const funding = parseFloat(item.fundingFeeRate) || 0;
-        if (price > 0) {
-          calculator.setKucoin(std, price, funding, parseFloat(item.volumeOf24h) || 0);
-        }
-      }
-    } catch {}
-  }, 10000);
+
 
   // ===== Phase 3 modules =====
   const bybitTrader = new PaperTrader();
@@ -191,7 +193,8 @@ async function main() {
 
   // Broadcast loop
   setInterval(() => {
-    const spreads = calculator.computeAll();
+    const allSpreads = calculator.computeAll();
+    const spreads = allSpreads.slice(0, 200); // max 200 rows to frontend
     if (spreads.length > 0) {
       wsServer.broadcastSpreads(spreads);
       wsServer.broadcastStatus(bybitStatus, kucoinStatus);
@@ -206,7 +209,17 @@ async function main() {
   app.use('/api/spreads', createSpreadsRouter(calculator));
   app.use('/api/history', createHistoryRouter());
   app.use('/api/trades', createTradesRouter());
-  app.use('/api/health', createHealthRouter(calculator, bybitConn, kucoinConn, wsServer));
+  // Use the ConnectionPoolManager instances for health — they track actual WS status
+  const healthBybit = { status: bybitStatus };
+  const healthKucoin = { status: kucoinStatus };
+  app.use('/api/health', (req, res, next) => {
+    // Override status to use pool status
+    const router = createHealthRouter(calculator, bybitConn, kucoinConn, wsServer);
+    // Patch: health router reads .status from connector objects
+    bybitConn.status = bybitStatus;
+    kucoinConn.status = kucoinStatus;
+    router(req, res, next);
+  });
   app.use('/api/ws-health', createWsHealthRouter(() => bybitPool.getHealth(), () => kucoinPool.getHealth()));
 
   // API routes — protected by auth middleware

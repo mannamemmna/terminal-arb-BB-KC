@@ -16,13 +16,14 @@ export default function SpreadScanner() {
   const filtered = config.watchedPairs.length > 0
     ? spreads.filter(s => config.watchedPairs.includes(s.symbol))
     : spreads; // empty = show all
+  const displayed = filtered.slice(0, 200); // max 200 rows for performance
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-2 sm:px-3 py-1.5 sm:py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-text-primary truncate">Scanner</span>
-          <span className="mono text-[9px] sm:text-[10px] text-text-dim bg-bg-dark px-1.5 py-0.5 rounded">{filtered.length}p</span>
+          <span className="mono text-[9px] sm:text-[10px] text-text-dim bg-bg-dark px-1.5 py-0.5 rounded">{displayed.length}/{spreads.length}</span>
         </div>
       </div>
 
@@ -44,7 +45,7 @@ export default function SpreadScanner() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((row) => {
+            {displayed.map((row, idx) => {
               const isExpanded = expandedRow === row.symbol;
               return (
                 <>

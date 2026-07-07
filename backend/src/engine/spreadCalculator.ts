@@ -127,8 +127,8 @@ export class SpreadCalculator {
     const bp = snap.bybitPrice!, kp = snap.kucoinPrice!;
     const mid = (bp + kp) / 2;
     if (mid === 0) return null;
-    // Sanity check: reject spread > 10% (likely symbol mismatch or bad data)
-    if (Math.abs(bp - kp) / mid > 0.1) return null;
+    // Sanity check: reject extreme outliers (>50% spread = data mismatch)
+    if (Math.abs(bp - kp) / mid > 0.5) return null;
     return {
       symbol: snap.symbol,
       bybitPrice: +bp.toFixed(2),
