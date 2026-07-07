@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-dark: #0a0a0a;
+  --color-bg-panel: #111111;
+  --color-bg-panel-hover: #1a1a1a;
+  --color-bg-header: #0d0d0d;
+  --color-accent-green: #22c55e;
+  --color-accent-green-dim: #166534;
+  --color-accent-red: #ef4444;
+  --color-accent-red-dim: #991b1b;
+  --color-accent-amber: #f59e0b;
+  --color-accent-amber-dim: #92400e;
+  --color-accent-blue: #3b82f6;
+  --color-text-primary: #e5e7eb;
+  --color-text-secondary: #6b7280;
+  --color-text-dim: #4b5563;
+  --color-border: #1f2937;
+  --color-border-light: #374151;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Monospace for all tabular data */
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Tabular numbers — prices, percentages, IDs */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* Pulsing indicator */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Live flash effect on data change */
+@keyframes flash-green {
+  0% { background-color: rgba(34, 197, 94, 0.15); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-red {
+  0% { background-color: rgba(239, 68, 68, 0.15); }
+  100% { background-color: transparent; }
+}
+
+.flash-up {
+  animation: flash-green 0.6s ease-out;
+}
+
+.flash-down {
+  animation: flash-red 0.6s ease-out;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* Feed auto-scroll */
+.feed-container {
+  scroll-behavior: smooth;
+}
+
+/* Remove default input styling */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Table row hover */
+tr.clickable:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}

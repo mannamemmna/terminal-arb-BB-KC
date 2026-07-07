@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Config {
+  id    String @id @default("main")
+  json  String
+}
+
+model Signal {
+  id         Int      @id @default(autoincrement())
+  symbol     String
+  message    String
+  verdict    String
+  spreadPct  Float
+  fundingDiff Float
+  createdAt  DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
+model Trade {
+  id          Int       @id @default(autoincrement())
+  symbol      String
+  sideBybit   String
+  sideKucoin  String
+  entrySpread Float
+  exitSpread  Float?
+  pnl         Float?
+  status      String    @default("OPEN")
+  createdAt   DateTime  @default(now())
+  closedAt    DateTime?
+
+  @@index([status, createdAt])
+}
+
+model HealthCheck {
+  id        Int      @id @default(autoincrement())
+  bybit     String
+  kucoin    String
+  uptime    Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Hedged position (two legs = one arb position)
+model Position {
+  id             String    @id @default(uuid())
+  symbol         String
+  mode           String    // demo | live
+
+  // Leg A (Bybit)
+  legAExchange   String    @default("bybit")
+  legASide       String    // LONG | SHORT
+  legAEntryPrice Float
+  legASize       Float     // contract qty
+  legAOrderId    String?
+
+  // Leg B (KuCoin)
+  legBExchange   String    @default("kucoin")
+  legBSide       String    // LONG | SHORT
+  legBEntryPrice Float
+  legBSize       Float
+  legBOrderId    String?
+
+  size           Float     // uniform size
+  entrySpread    Float
+  currentSpread  Float?
+  unrealizedPnl  Float?
+  realizedPnl    Float?
+  status         String    @default("OPEN") // OPEN | CLOSED | ROLLBACK
+  openedAt       DateTime  @default(now())
+  closedAt       DateTime?
+
+  @@index([status, mode])
+}
+
+/// Individual order attempts (audit log)
+model Order {
+  id             String   @id @default(uuid())
+  positionId     String?
+  exchange       String   // bybit | kucoin
+  symbol         String
+  side           String   // BUY | SELL
+  orderType      String   // MARKET | LIMIT
+  size           Float
+  price          Float?
+  reduceOnly     Boolean  @default(false)
+  clientOrderId  String?
+  requestPayload String   // JSON
+  responseRaw    String?  // JSON
+  status         String   // PENDING | FILLED | REJECTED | ERROR
+  latencyMs      Int?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+
+  @@index([positionId])
+}
