@@ -9,8 +9,6 @@ const ALL_SYMBOLS = [
   'APTUSDT', 'ARBUSDT', 'OPUSDT', 'FILUSDT', 'INJUSDT',
 ];
 
-const BACKEND_PORT = 3001;
-const getBackend = () => `http://${window.location.hostname || 'localhost'}:${BACKEND_PORT}`;
 
 export default function SettingsDrawer({ open, onClose }) {
   const { config, updateConfig, killSwitch, killState } = useTerminal();
@@ -19,15 +17,15 @@ export default function SettingsDrawer({ open, onClose }) {
   const [loginError, setLoginError] = useState('');
   const [checking, setChecking] = useState(true);
 
-  useState(() => {
-    fetch(`${getBackend()}/api/auth/status`, { credentials: 'include' })
+  useEffect(() => {
+    fetch('/api/auth/status', { credentials: 'include' })
       .then(r => r.json()).then(d => { setAuthenticated(d.authenticated); setChecking(false); })
       .catch(() => setChecking(false));
-  });
+  }, []);
 
   const handleLogin = async () => {
     try {
-      const res = await fetch(`${getBackend()}/api/auth/login`, {
+      const res = await fetch('/api/auth/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }), credentials: 'include',
       });
@@ -114,11 +112,14 @@ export default function SettingsDrawer({ open, onClose }) {
 
             <div>
               <div className="flex items-center justify-between">
-                <label className="text-xs text-text-dim uppercase tracking-wider font-semibold">Watched Pairs</label>
+                <label className="text-xs text-text-dim uppercase tracking-wider font-semibold">Pair Filter</label>
                 <div className="flex gap-2">
-                  <button onClick={() => updateConfig({ watchedPairs: [...ALL_SYMBOLS] })} className="mono text-[9px] uppercase text-accent-blue cursor-pointer">All</button>
-                  <button onClick={() => updateConfig({ watchedPairs: [] })} className="mono text-[9px] uppercase text-accent-red cursor-pointer">None</button>
+                  <button onClick={() => updateConfig({ watchedPairs: [] })} className="mono text-[9px] uppercase text-accent-green cursor-pointer">Show All</button>
+                  <button onClick={() => updateConfig({ watchedPairs: ALL_SYMBOLS })} className="mono text-[9px] uppercase text-accent-blue cursor-pointer">Favorites</button>
                 </div>
+              </div>
+              <div className="mt-1 text-[10px] text-text-dim mono">
+                {config.watchedPairs.length === 0 ? 'Showing ALL pairs from backend' : `Showing ${config.watchedPairs.length} selected pairs`}
               </div>
               <div className="mt-1.5 grid grid-cols-2 gap-1">
                 {ALL_SYMBOLS.map(sym => (
@@ -128,6 +129,7 @@ export default function SettingsDrawer({ open, onClose }) {
                   </label>
                 ))}
               </div>
+              <div className="mt-1 text-[10px] text-accent-amber mono">Empty = show all {config.watchedPairs.length === 0 ? '✅' : ''}</div>
             </div>
           </div>
         )}

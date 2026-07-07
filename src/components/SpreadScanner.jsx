@@ -13,7 +13,9 @@ function formatVolume(v) { if (v >= 1_000_000_000) return `${(v/1_000_000_000).t
 export default function SpreadScanner() {
   const { spreads, config, setSelectedSymbol, selectedSymbol } = useTerminal();
   const [expandedRow, setExpandedRow] = useState(null);
-  const filtered = spreads.filter(s => config.watchedPairs.includes(s.symbol));
+  const filtered = config.watchedPairs.length > 0
+    ? spreads.filter(s => config.watchedPairs.includes(s.symbol))
+    : spreads; // empty = show all
 
   return (
     <div className="flex flex-col h-full">

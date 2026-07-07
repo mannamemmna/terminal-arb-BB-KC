@@ -7,6 +7,7 @@ import { AuthService } from './config/auth.js';
 import { BybitConnector } from './connectors/bybit.connector.js';
 import { KucoinConnector } from './connectors/kucoin.connector.js';
 import { BybitTrader } from './connectors/bybit.trader.js';
+import { PaperTrader } from './connectors/paper.trader.js';
 import { KucoinTrader } from './connectors/kucoin.trader.js';
 import type { ConnectionStatus } from './connectors/types.js';
 import { SpreadCalculator } from './engine/spreadCalculator.js';
@@ -72,9 +73,19 @@ async function main() {
     calculator.setBybit(std, price, funding, volume);
   });
 
+  // KuCoin funding rate cache — tickerV2 sends bestBidPrice (no funding info),
+  // instrument topic sends fundingRate + markPrice. We need to merge them.
+  const kucoinFundingCache = new Map<string, number>();
   kucoinPool.onTickerCb((symbol, price, funding, volume) => {
-    const std = symToStandard.get(symbol) || calculator.keys().find(k => k.includes(symbol.replace('USDTM', ''))) || symbol;
-    calculator.setKucoin(std, price, funding, volume);
+    let std = symToStandard.get(symbol);
+    if (!std) {
+      const base = symbol.replace('USDTM', '');
+      std = calculator.keys().find(k => k.includes(base)) || symbol;
+    }
+    // Cache funding rate from instrument updates, merge with ticker prices
+    if (funding !== 0) kucoinFundingCache.set(std, funding);
+    const cachedFunding = kucoinFundingCache.get(std) || 0;
+    calculator.setKucoin(std, price, cachedFunding, volume);
   });
 
   let bybitStatus: ConnectionStatus = 'connecting';
@@ -87,20 +98,37 @@ async function main() {
   discovery.onSymbolsChange((newPairs, removedPairs) => {
     if (newPairs.length > 0) logFn(`[DISCOVERY] New pairs: ${newPairs.join(', ')}`);
     if (removedPairs.length > 0) logFn(`[DISCOVERY] Removed pairs: ${removedPairs.join(', ')}`);
+    // Update pools with new symbols
+    if (newPairs.length > 0) {
+      for (const s of newPairs) addSymbolMappings(s);
+      bybitPool.updateSymbols(allSymbols).catch(() => {});
+      kucoinPool.updateSymbols(allSymbols.map(kucoinName)).catch(() => {});
+    }
   });
 
+  // Helper to build symToStandard for a standard pair name
+  const addSymbolMappings = (s: string) => {
+    symToStandard.set(s, s);
+    symToStandard.set(s.toLowerCase(), s);
+    symToStandard.set(s.replace('USDT', ''), s);
+    // Bybit naming — most pairs keep standard name
+    // KuCoin naming — adds suffix M (e.g. ETHUSDT → ETHUSDTM)
+    // Special case: BTC → XBT on KuCoin
+    const kucoinSym = s === 'BTCUSDT' ? 'XBTUSDTM' : s.replace('USDT', 'USDTM');
+    symToStandard.set(kucoinSym, s);
+  };
+
+  const kucoinName = (s: string) => s === 'BTCUSDT' ? 'XBTUSDTM' : s.replace('USDT', 'USDTM');
+
   // Start discovery in background — don't block server startup
+  const allSymbols: string[] = [];
   discovery.start().then(() => {
-    const allSymbols = discovery.symbols;
+    allSymbols.push(...discovery.symbols);
     logFn(`[DISCOVERY] ${allSymbols.length} matched pairs`);
-    // Build symbol map
-    for (const s of allSymbols) {
-      symToStandard.set(s, s);
-      symToStandard.set(s.replace('USDT', 'USDTM'), s);
-    }
+    for (const s of allSymbols) addSymbolMappings(s);
     // Init pools
     bybitPool.init(allSymbols).catch(() => {});
-    kucoinPool.init(allSymbols.map(s => s.replace('USDT', 'USDTM'))).catch(() => {});
+    kucoinPool.init(allSymbols.map(kucoinName)).catch(() => {});
   }).catch(() => {});
 
   // ===== Legacy connectors (REST fallback) =====
@@ -111,9 +139,28 @@ async function main() {
   bybitConn.startRestPolling();
   kucoinConn.startRestPolling();
 
+  // KuCoin REST: fetch ALL available pairs (not just mapped 20) as reliable data source
+  setInterval(async () => {
+    try {
+      const res = await fetch('https://api-futures.kucoin.com/api/v1/contracts/active');
+      const json = await res.json() as any;
+      if (json.code !== '200000' || !json.data) return;
+      for (const item of json.data) {
+        if (!item.symbol.endsWith('USDTM') || item.status !== 'Open') continue;
+        const sym = item.symbol;
+        const std = symToStandard.get(sym) || calculator.keys().find((k: string) => k.startsWith(sym.replace('USDTM', ''))) || sym.replace('USDTM', 'USDT');
+        const price = parseFloat(item.markPrice) || 0;
+        const funding = parseFloat(item.fundingFeeRate) || 0;
+        if (price > 0) {
+          calculator.setKucoin(std, price, funding, parseFloat(item.volumeOf24h) || 0);
+        }
+      }
+    } catch {}
+  }, 10000);
+
   // ===== Phase 3 modules =====
-  const bybitTrader = new BybitTrader('demo');
-  const kucoinTrader = new KucoinTrader('demo');
+  const bybitTrader = new PaperTrader();
+  const kucoinTrader = new PaperTrader();
   const positionManager = new PositionManager(bybitTrader, kucoinTrader);
   const killSwitch = new KillSwitch(logFn);
   const orchestrator = new ExecutionOrchestrator(bybitTrader, kucoinTrader, positionManager, calculator, logFn);

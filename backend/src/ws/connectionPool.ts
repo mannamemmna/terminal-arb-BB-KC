@@ -339,14 +339,21 @@ export function createKucoinPool(): ConnectionPoolManager {
         const rawSym = msg.topic.split(':')[1];
         const d = msg.data;
         if (!d) return;
-        onTicker(rawSym, parseFloat(d.price) || 0, 0, parseFloat(d.vol) || 0);
+        // KuCoin tickerV2 uses bestBidPrice, not "price"
+        const price = parseFloat(d.bestBidPrice || d.price || '0');
+        onTicker(rawSym, price, 0, 0);
       }
-      // Also handle instrument for funding rate
+      // Also handle instrument for funding rate + mark price
       if (msg.type === 'message' && msg.topic?.startsWith('/contract/instrument:')) {
         const rawSym = msg.topic.split(':')[1];
         const d = msg.data;
-        if (!d?.fundingRate) return;
-        onTicker(rawSym, 0, parseFloat(d.fundingRate), 0);
+        if (!d) return;
+        // Instrument can have markPrice AND fundingRate
+        const markPrice = parseFloat(d.markPrice || '0');
+        const fundingRate = parseFloat(d.fundingRate || '0');
+        if (markPrice > 0 || fundingRate !== 0) {
+          onTicker(rawSym, markPrice, fundingRate, 0);
+        }
       }
     },
     pingIntervalMs: 9000,

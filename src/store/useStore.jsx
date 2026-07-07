@@ -1,20 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import {
-  generateAllSpreads,
-  generateEquityCurve,
-  generateActivePositions,
-  generateInitialLogs,
-  generateTradeHistory,
-} from '../data/mockData';
-
 const TerminalContext = createContext(null);
 
 const DEFAULT_CONFIG = {
   spreadThreshold: 0.3,
   minFundingDiff: 0.01,
   dryRun: true,
-  watchedPairs: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
-    'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'POLUSDT'],
+  watchedPairs: [], // empty = show ALL pairs from backend
   feedAutoScroll: true,
 };
 
@@ -51,13 +42,7 @@ export function TerminalProvider({ children }) {
   const wsRef = useRef(null);
   const connectedRef = useRef(false);
 
-  // Seed initial mock data
-  useEffect(() => {
-    setEquityCurve(generateEquityCurve());
-    setPositions(generateActivePositions(3));
-    setTradeHistory(generateTradeHistory(25));
-    setLogs(generateInitialLogs(50));
-  }, []);
+  // Data comes from backend — no mock seed
 
   // Fetch accounts + positions periodically
   const fetchAccounts = useCallback(async () => {
@@ -130,15 +115,12 @@ export function TerminalProvider({ children }) {
     };
 
     const fallbackToMock = () => {
-      setSpreads(generateAllSpreads());
-      setStatus(p => ({...p, bybit:'connected', kucoin:'connected'}));
-      const si = setInterval(() => setSpreads(generateAllSpreads()), 2000);
-      const si2 = setInterval(() => setStatus(p => ({...p, lastUpdate: new Date(), totalPnl: +(p.totalPnl + (Math.random()-0.45)*10).toFixed(2)})), 5000);
-      return () => { clearInterval(si); clearInterval(si2); };
+      console.warn('[WS] Backend unavailable — using local fallback');
+      setStatus(p => ({...p, bybit:'connected', kucoin:'connected', lastUpdate: new Date()}));
     };
 
     connectWs();
-    const ft = setTimeout(() => { if (!connectedRef.current) fallbackToMock(); }, 5000);
+    const ft = setTimeout(() => { if (!connectedRef.current) fallbackToMock(); }, 10000);
     return () => { clearTimeout(ft); if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; } };
   }, [fetchAccounts, fetchPositions]);
 
