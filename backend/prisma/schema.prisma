@@ -8,8 +8,8 @@ datasource db {
 }
 
 model Config {
-  id    String @id @default("main")
-  json  String
+  id   String @id @default("main")
+  json String
 }
 
 model Signal {
@@ -20,7 +20,6 @@ model Signal {
   spreadPct  Float
   fundingDiff Float
   createdAt  DateTime @default(now())
-
   @@index([symbol, createdAt])
 }
 
@@ -33,10 +32,11 @@ model Trade {
   exitSpread  Float?
   pnl         Float?
   status      String    @default("OPEN")
+  mode        String    @default("paper")
   createdAt   DateTime  @default(now())
   closedAt    DateTime?
-
   @@index([status, createdAt])
+  @@index([mode])
 }
 
 model HealthCheck {
@@ -45,60 +45,60 @@ model HealthCheck {
   kucoin    String
   uptime    Int
   createdAt DateTime @default(now())
-
   @@index([createdAt])
 }
 
-/// Hedged position (two legs = one arb position)
 model Position {
   id             String    @id @default(uuid())
   symbol         String
-  mode           String    // demo | live
-
-  // Leg A (Bybit)
+  mode           String
   legAExchange   String    @default("bybit")
-  legASide       String    // LONG | SHORT
+  legASide       String
   legAEntryPrice Float
-  legASize       Float     // contract qty
+  legASize       Float
   legAOrderId    String?
-
-  // Leg B (KuCoin)
   legBExchange   String    @default("kucoin")
-  legBSide       String    // LONG | SHORT
+  legBSide       String
   legBEntryPrice Float
   legBSize       Float
   legBOrderId    String?
-
-  size           Float     // uniform size
+  size           Float
   entrySpread    Float
   currentSpread  Float?
   unrealizedPnl  Float?
   realizedPnl    Float?
-  status         String    @default("OPEN") // OPEN | CLOSED | ROLLBACK
+  status         String    @default("OPEN")
   openedAt       DateTime  @default(now())
   closedAt       DateTime?
-
   @@index([status, mode])
 }
 
-/// Individual order attempts (audit log)
 model Order {
   id             String   @id @default(uuid())
   positionId     String?
-  exchange       String   // bybit | kucoin
+  exchange       String
   symbol         String
-  side           String   // BUY | SELL
-  orderType      String   // MARKET | LIMIT
+  side           String
+  orderType      String
   size           Float
   price          Float?
   reduceOnly     Boolean  @default(false)
   clientOrderId  String?
-  requestPayload String   // JSON
-  responseRaw    String?  // JSON
-  status         String   // PENDING | FILLED | REJECTED | ERROR
+  requestPayload String
+  responseRaw    String?
+  status         String
   latencyMs      Int?
   errorMessage   String?
   createdAt      DateTime @default(now())
-
+  mode           String   @default("paper")
   @@index([positionId])
+  @@index([mode])
+}
+
+model PaperAccount {
+  id        Int      @id @default(autoincrement())
+  exchange  String   @unique
+  balance   Float    @default(10000)
+  currency  String   @default("USDT")
+  updatedAt DateTime @default(now())
 }

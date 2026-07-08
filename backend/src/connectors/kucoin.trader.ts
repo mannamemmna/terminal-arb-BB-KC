@@ -10,25 +10,34 @@ interface KucoinApiResponse {
 
 export class KucoinTrader {
   readonly name = 'kucoin';
-  readonly mode: 'demo' | 'live';
+  mode: 'paper' | 'testnet' | 'live' = 'paper';
 
-  private apiKey: string;
-  private apiSecret: string;
-  private apiPassphrase: string;
-  private baseUrl: string;
+  private apiKey = '';
+  private apiSecret = '';
+  private apiPassphrase = '';
+  private baseUrl = '';
 
-  constructor(mode: 'demo' | 'live') {
+  constructor(mode: 'paper' | 'testnet' | 'live') {
+    this.reconfigure(mode);
+  }
+
+  reconfigure(mode: 'paper' | 'testnet' | 'live'): void {
     this.mode = mode;
-    if (mode === 'demo') {
+    if (mode === 'testnet') {
       this.apiKey = process.env.KUCOIN_DEMO_API_KEY || '';
       this.apiSecret = process.env.KUCOIN_DEMO_API_SECRET || '';
       this.apiPassphrase = process.env.KUCOIN_DEMO_API_PASSPHRASE || '';
       this.baseUrl = 'https://api-sandbox-futures.kucoin.com';
-    } else {
+    } else if (mode === 'live') {
       this.apiKey = process.env.KUCOIN_LIVE_API_KEY || '';
       this.apiSecret = process.env.KUCOIN_LIVE_API_SECRET || '';
       this.apiPassphrase = process.env.KUCOIN_LIVE_API_PASSPHRASE || '';
       this.baseUrl = config.kucoin.restUrl;
+    } else {
+      this.apiKey = '';
+      this.apiSecret = '';
+      this.apiPassphrase = '';
+      this.baseUrl = '';
     }
   }
 
@@ -49,11 +58,13 @@ export class KucoinTrader {
   }
 
   private async request(method: string, path: string, body?: any): Promise<KucoinApiResponse> {
-    const url = `${this.baseUrl}${path}`;
-    if (!this.apiKey) return { code: '-1', msg: 'No API key configured' };
+    if (this.mode !== 'paper' && !this.apiKey) {
+      return { code: '400', msg: `${this.mode} API key not configured` };
+    }
+    if (this.mode === 'paper') return { code: '-1', msg: 'Paper mode — no exchange calls' };
     try {
       const hdrs = this.headers(method, path, body);
-      const res = await fetch(url, { method, headers: hdrs, body: body ? JSON.stringify(body) : undefined });
+      const res = await fetch(`${this.baseUrl}${path}`, { method, headers: hdrs, body: body ? JSON.stringify(body) : undefined });
       return res.json();
     } catch (err: any) {
       return { code: '-1', msg: err.message };
@@ -61,6 +72,10 @@ export class KucoinTrader {
   }
 
   async placeOrder(req: OrderRequest): Promise<OrderResult> {
+    if (this.mode === 'paper') {
+      const clientOrderId = req.clientOrderId || `paper_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      return { orderId: `paper_${clientOrderId}`, clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 50000, status: 'FILLED', filledSize: req.size, avgPrice: req.price || 50000, latencyMs: 5 };
+    }
     const start = Date.now();
     const clientOrderId = req.clientOrderId || `arb_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     try {
@@ -74,14 +89,11 @@ export class KucoinTrader {
         reduceOnly: req.reduceOnly || false,
       };
       if (req.price) body.price = String(req.price);
-
       const res = await this.request('POST', '/api/v1/orders', body);
       const latency = Date.now() - start;
-
       if (res.code !== '200000') {
         return { orderId: '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 0, status: 'REJECTED', errorMessage: res.msg, latencyMs: latency };
       }
-
       return { orderId: res.data?.orderId || '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 0, status: 'FILLED', latencyMs: latency };
     } catch (err: any) {
       return { orderId: '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 0, status: 'ERROR', errorMessage: err.message, latencyMs: Date.now() - start };
@@ -101,6 +113,7 @@ export class KucoinTrader {
   }
 
   async getOpenPositions(): Promise<PositionInfo[]> {
+    if (this.mode === 'paper') return [];
     const res = await this.request('GET', '/api/v1/positions');
     if (res.code !== '200000' || !Array.isArray(res.data)) return [];
     return res.data.filter((p: any) => parseFloat(p.currentQty) !== 0).map((p: any) => ({
@@ -112,14 +125,18 @@ export class KucoinTrader {
   }
 
   async getBalance(): Promise<AccountBalance> {
+    if (this.mode === 'paper') {
+      return { exchange: 'kucoin', totalEquity: 0, availableBalance: 0, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
+    }
     const res = await this.request('GET', '/api/v1/account-overview?currency=USDT');
     if (res.code !== '200000' || !res.data) {
-      return { exchange: 'kucoin', totalEquity: 10000, availableBalance: 10000, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
+      return { exchange: 'kucoin', totalEquity: 0, availableBalance: 0, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
     }
     return { exchange: 'kucoin', totalEquity: parseFloat(res.data.accountEquity) || 0, availableBalance: parseFloat(res.data.availableBalance) || 0, usedMargin: parseFloat(res.data.orderMargin) || 0, unrealizedPnl: parseFloat(res.data.unrealisedPnl) || 0, currency: 'USDT' };
   }
 
-  async setLeverage(symbol: string, leverage: number): Promise<void> {
-    await this.request('POST', '/api/v1/position/leverage', { symbol, leverage: String(leverage) });
+  async setLeverage(_symbol: string, _leverage: number): Promise<void> {
+    if (this.mode === 'paper') return;
+    await this.request('POST', '/api/v1/position/leverage', { symbol: _symbol, leverage: String(_leverage) });
   }
 }

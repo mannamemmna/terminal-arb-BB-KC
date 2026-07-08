@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTerminal } from '../store/useStore';
 import { Lock, Pause, Play, OctagonX, X } from 'lucide-react';
 

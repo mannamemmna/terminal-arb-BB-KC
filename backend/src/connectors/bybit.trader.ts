@@ -10,22 +10,31 @@ interface BybitApiResponse {
 
 export class BybitTrader {
   readonly name = 'bybit';
-  readonly mode: 'demo' | 'live';
+  mode: 'paper' | 'testnet' | 'live' = 'paper';
 
   private apiKey = '';
   private apiSecret = '';
   private baseUrl = '';
 
-  constructor(mode: 'demo' | 'live') {
+  constructor(mode: 'paper' | 'testnet' | 'live') {
+    this.reconfigure(mode);
+  }
+
+  reconfigure(mode: 'paper' | 'testnet' | 'live'): void {
     this.mode = mode;
-    if (mode === 'demo') {
+    if (mode === 'testnet') {
       this.apiKey = process.env.BYBIT_DEMO_API_KEY || '';
       this.apiSecret = process.env.BYBIT_DEMO_API_SECRET || '';
       this.baseUrl = 'https://api-testnet.bybit.com';
-    } else {
+    } else if (mode === 'live') {
       this.apiKey = process.env.BYBIT_LIVE_API_KEY || '';
       this.apiSecret = process.env.BYBIT_LIVE_API_SECRET || '';
       this.baseUrl = config.bybit.restUrl;
+    } else {
+      // paper — no API keys needed
+      this.apiKey = '';
+      this.apiSecret = '';
+      this.baseUrl = '';
     }
   }
 
@@ -45,11 +54,12 @@ export class BybitTrader {
   }
 
   private async request(method: string, path: string, body?: any): Promise<BybitApiResponse> {
-    const url = `${this.baseUrl}${path}`;
-    if (!this.apiKey) return { retCode: -1, retMsg: 'No API key configured' };
+    if (!this.apiKey && this.mode !== 'paper') {
+      return { retCode: -1, retMsg: `${this.mode} API key not configured` };
+    }
     try {
       const headers = this.sign(method, path, body);
-      const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      const res = await fetch(`${this.baseUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
       return res.json();
     } catch (err: any) {
       return { retCode: -1, retMsg: err.message };
@@ -71,24 +81,17 @@ export class BybitTrader {
         orderLinkId: clientOrderId,
       };
       if (req.price) body.price = String(req.price);
-
       const res = await this.request('POST', '/v5/order/create', body);
       const latency = Date.now() - start;
-
-      if (res.retCode !== 0) {
+      if (res.retCode !== 0 || this.mode === 'paper') {
+        // Paper mode: fake fill
+        if (this.mode === 'paper') {
+          return { orderId: `paper_${clientOrderId}`, clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 50000, status: 'FILLED', filledSize: req.size, avgPrice: req.price || 50000, latencyMs: 5 };
+        }
         return { orderId: '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 0, status: 'REJECTED', errorMessage: res.retMsg, latencyMs: latency };
       }
-
       const d = res.result;
-      return {
-        orderId: d.orderId || '',
-        clientOrderId, symbol: req.symbol, side: req.side, size: req.size,
-        price: parseFloat(d.price) || req.price || 0,
-        status: d.orderStatus === 'Filled' ? 'FILLED' : 'FILLED',
-        filledSize: parseFloat(d.cumExecQty) || 0,
-        avgPrice: parseFloat(d.avgPrice) || 0,
-        latencyMs: latency,
-      };
+      return { orderId: d.orderId || '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: parseFloat(d.price) || req.price || 0, status: d.orderStatus === 'Filled' ? 'FILLED' : 'FILLED', filledSize: parseFloat(d.cumExecQty) || 0, avgPrice: parseFloat(d.avgPrice) || 0, latencyMs: latency };
     } catch (err: any) {
       return { orderId: '', clientOrderId, symbol: req.symbol, side: req.side, size: req.size, price: req.price || 0, status: 'ERROR', errorMessage: err.message, latencyMs: Date.now() - start };
     }
@@ -107,6 +110,7 @@ export class BybitTrader {
   }
 
   async getOpenPositions(): Promise<PositionInfo[]> {
+    if (this.mode === 'paper') return [];
     const res = await this.request('GET', '/v5/position/list?category=linear&settleCoin=USDT');
     if (res.retCode !== 0 || !res.result?.list) return [];
     return res.result.list.filter((p: any) => parseFloat(p.size) > 0).map((p: any) => ({
@@ -118,15 +122,15 @@ export class BybitTrader {
   }
 
   async getBalance(): Promise<AccountBalance> {
+    if (this.mode === 'paper') return { exchange: 'bybit', totalEquity: 0, availableBalance: 0, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
     const res = await this.request('GET', '/v5/account/wallet-balance?accountType=UNIFIED&coin=USDT');
-    if (res.retCode !== 0 || !res.result?.list?.[0]) {
-      return { exchange: 'bybit', totalEquity: 10000, availableBalance: 10000, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
-    }
-    const coin = res.result.list[0].coin?.[0] || {};
+    if (res.retCode !== 0) return { exchange: 'bybit', totalEquity: 0, availableBalance: 0, usedMargin: 0, unrealizedPnl: 0, currency: 'USDT' };
+    const coin = res.result?.list?.[0]?.coin?.[0] || {};
     return { exchange: 'bybit', totalEquity: parseFloat(coin.equity) || 0, availableBalance: parseFloat(coin.walletBalance) || 0, usedMargin: parseFloat(coin.used) || 0, unrealizedPnl: parseFloat(coin.unrealisedPnl) || 0, currency: 'USDT' };
   }
 
-  async setLeverage(symbol: string, leverage: number): Promise<void> {
-    await this.request('POST', '/v5/position/set-leverage', { category: 'linear', symbol, buyLeverage: String(leverage), sellLeverage: String(leverage) });
+  async setLeverage(_symbol: string, _leverage: number): Promise<void> {
+    if (this.mode === 'paper') return;
+    await this.request('POST', '/v5/position/set-leverage', { category: 'linear', symbol: _symbol, buyLeverage: String(_leverage), sellLeverage: String(_leverage) });
   }
 }

@@ -100,7 +100,7 @@ export class AuthService {
     }
 
     // Allow public endpoints (no auth needed)
-    const publicPaths = ['/api/health', '/api/spreads', '/api/pairs', '/api/history', '/api/trades', '/api/signals', '/api/ws-health', '/api/auth'];
+    const publicPaths = ['/api/health', '/api/spreads', '/api/pairs', '/api/history', '/api/trades', '/api/signals', '/api/ws-health', '/api/auth', '/api/mode'];
     if (publicPaths.some((p: string) => req.path.startsWith(p))) {
       return next();
     }

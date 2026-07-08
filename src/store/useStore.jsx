@@ -1,18 +1,21 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+
 const TerminalContext = createContext(null);
 
 const DEFAULT_CONFIG = {
   spreadThreshold: 0.3,
   minFundingDiff: 0.01,
   dryRun: true,
-  watchedPairs: [], // empty = show ALL pairs from backend
+  watchedPairs: [],
+  watchlistOnly: false,
   feedAutoScroll: true,
+  displayLimit: 100,
 };
 
-const BACKEND_PORT = 3001;
-const getBackendUrl = () => {
-  const host = window.location.hostname || 'localhost';
-  return { rest: `http://${host}:${BACKEND_PORT}`, ws: `ws://${host}:${BACKEND_PORT}/ws` };
+/** Build origin-relative WebSocket URL — works with Vite proxy & production */
+const getWsUrl = () => {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/ws`;
 };
 
 export function TerminalProvider({ children }) {
@@ -32,8 +35,7 @@ export function TerminalProvider({ children }) {
     totalPnl: 0,
   });
 
-  // Phase 3 state
-  const [mode, setMode] = useState('demo');
+  const [mode, setMode] = useState('paper');
   const [killState, setKillState] = useState('ACTIVE');
   const [accounts, setAccounts] = useState({ bybit: null, kucoin: null });
 
@@ -42,45 +44,62 @@ export function TerminalProvider({ children }) {
   const wsRef = useRef(null);
   const connectedRef = useRef(false);
 
-  // Data comes from backend — no mock seed
+  // Common fetch helper with credentials
+  const api = (path, opts = {}) =>
+    fetch(path, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...opts });
 
-  // Fetch accounts + positions periodically
   const fetchAccounts = useCallback(async () => {
-    const { rest } = getBackendUrl();
     try {
       const [bybitRes, kucoinRes] = await Promise.all([
-        fetch(`${rest}/api/account/bybit`),
-        fetch(`${rest}/api/account/kucoin`),
+        api('/api/account/bybit'),
+        api('/api/account/kucoin'),
       ]);
       setAccounts({ bybit: await bybitRes.json(), kucoin: await kucoinRes.json() });
     } catch {}
   }, []);
 
   const fetchPositions = useCallback(async () => {
-    const { rest } = getBackendUrl();
     try {
-      const res = await fetch(`${rest}/api/positions/open`);
+      const res = await api('/api/positions/open');
       const data = await res.json();
       if (data.positions) setPositions(data.positions);
     } catch {}
   }, []);
 
+  const fetchTradeHistory = useCallback(async () => {
+    try {
+      const res = await api(`/api/trades?mode=${mode}&limit=50`);
+      const data = await res.json();
+      if (data.trades) setTradeHistory(data.trades);
+    } catch {}
+  }, [mode]);
+
+  const fetchEquityCurve = useCallback(async () => {
+    try {
+      const res = await api(`/api/equity-curve?mode=${mode}`);
+      const data = await res.json();
+      if (data.curve) setEquityCurve(data.curve);
+    } catch {}
+  }, [mode]);
+
   // Connect to backend WebSocket
   useEffect(() => {
     const connectWs = () => {
-      const { ws: wsUrl, rest: restUrl } = getBackendUrl();
+      const wsUrl = getWsUrl();
       let ws;
       try { ws = new WebSocket(wsUrl); }
-      catch { fallbackToMock(); return; }
+      catch { return; }
 
       ws.onopen = () => {
         connectedRef.current = true;
-        fetch(`${restUrl}/api/spreads`).then(r => r.json()).then(d => { if (d.spreads) setSpreads(d.spreads); }).catch(() => {});
-        fetch(`${restUrl}/api/config`).then(r => r.json()).then(d => { if (d.spreadThreshold) setConfig(p => ({...p, spreadThreshold: d.spreadThreshold, minFundingDiff: d.minFundingDiff})); }).catch(() => {});
-        fetch(`${restUrl}/api/mode`).then(r => r.json()).then(d => setMode(d.mode)).catch(() => {});
-        fetch(`${restUrl}/api/kill-switch`).then(r => r.json()).then(d => setKillState(d.state)).catch(() => {});
+        api('/api/spreads').then(r => r.json()).then(d => { if (d.spreads) setSpreads(d.spreads); }).catch(() => {});
+        api('/api/config').then(r => r.json()).then(d => { if (d.spreadThreshold !== undefined) setConfig(p => ({...p, spreadThreshold: d.spreadThreshold, minFundingDiff: d.minFundingDiff})); }).catch(() => {});
+        api('/api/mode').then(r => r.json()).then(d => setMode(d.mode || 'paper')).catch(() => {});
+        api('/api/kill-switch').then(r => r.json()).then(d => setKillState(d.state)).catch(() => {});
         fetchAccounts();
         fetchPositions();
+        fetchTradeHistory();
+        fetchEquityCurve();
       };
 
       ws.onmessage = (event) => {
@@ -105,6 +124,10 @@ export function TerminalProvider({ children }) {
             case 'positions:update':
               if (Array.isArray(msg.data)) setPositions(msg.data);
               break;
+            case 'trade:closed':
+              fetchTradeHistory();
+              fetchEquityCurve();
+              break;
             case 'welcome': break;
           }
         } catch {}
@@ -114,17 +137,10 @@ export function TerminalProvider({ children }) {
       wsRef.current = ws;
     };
 
-    const fallbackToMock = () => {
-      console.warn('[WS] Backend unavailable — using local fallback');
-      setStatus(p => ({...p, bybit:'connected', kucoin:'connected', lastUpdate: new Date()}));
-    };
-
     connectWs();
-    const ft = setTimeout(() => { if (!connectedRef.current) fallbackToMock(); }, 10000);
-    return () => { clearTimeout(ft); if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; } };
-  }, [fetchAccounts, fetchPositions]);
+    return () => { if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; } };
+  }, [fetchAccounts, fetchPositions, fetchTradeHistory, fetchEquityCurve]);
 
-  // Periodic fetch
   useEffect(() => {
     const iv = setInterval(fetchAccounts, 15000);
     return () => clearInterval(iv);
@@ -132,14 +148,12 @@ export function TerminalProvider({ children }) {
 
   const updateConfig = useCallback(async (patch) => {
     setConfig(prev => ({ ...prev, ...patch }));
-    const { rest: restUrl } = getBackendUrl();
-    try { await fetch(`${restUrl}/api/config`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ spreadThreshold: patch.spreadThreshold, minFundingDiff: patch.minFundingDiff }) }); } catch {}
+    try { await api('/api/config', { method: 'POST', body: JSON.stringify(patch) }); } catch {}
   }, []);
 
   const switchMode = useCallback(async (newMode, confirm) => {
-    const { rest } = getBackendUrl();
     try {
-      const res = await fetch(`${rest}/api/mode`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode: newMode, confirm }) });
+      const res = await api('/api/mode', { method: 'POST', body: JSON.stringify({ mode: newMode, confirm }) });
       const data = await res.json();
       if (data.mode) setMode(data.mode);
       return data;
@@ -147,9 +161,8 @@ export function TerminalProvider({ children }) {
   }, []);
 
   const killSwitch = useCallback(async (action) => {
-    const { rest } = getBackendUrl();
     try {
-      const res = await fetch(`${rest}/api/kill-switch`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action }) });
+      const res = await api('/api/kill-switch', { method: 'POST', body: JSON.stringify({ action }) });
       const data = await res.json();
       if (data.state) setKillState(data.state);
       return data;
@@ -157,8 +170,7 @@ export function TerminalProvider({ children }) {
   }, []);
 
   const closePosition = useCallback(async (positionId) => {
-    const { rest } = getBackendUrl();
-    try { await fetch(`${rest}/api/positions/${positionId}/close`, { method: 'POST' }); fetchPositions(); } catch {}
+    try { await api(`/api/positions/${positionId}/close`, { method: 'POST' }); fetchPositions(); } catch {}
   }, [fetchPositions]);
 
   return (
