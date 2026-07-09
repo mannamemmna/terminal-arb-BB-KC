@@ -23,7 +23,7 @@ export class ExecutionOrchestrator {
     private onLog: LogFn,
   ) {}
 
-  async tryEnter(spread: SpreadResult, mode: 'demo' | 'live'): Promise<boolean> {
+  async tryEnter(spread: SpreadResult, mode: 'paper' | 'testnet' | 'live'): Promise<boolean> {
     const sym = spread.symbol;
     if (this.busy.has(sym)) return false;
     this.busy.add(sym);

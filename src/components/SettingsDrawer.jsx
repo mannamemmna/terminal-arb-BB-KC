@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTerminal } from '../store/useStore';
-import { Lock, Pause, Play, OctagonX, X } from 'lucide-react';
+import { Lock, Pause, Play, OctagonX, X, BarChart3 } from 'lucide-react';
+import BacktestPanel from './BacktestPanel';
 
 const ALL_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT',
@@ -16,6 +17,7 @@ export default function SettingsDrawer({ open, onClose }) {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [checking, setChecking] = useState(true);
+  const [drawerTab, setDrawerTab] = useState('settings');
 
   useEffect(() => {
     fetch('/api/auth/status', { credentials: 'include' })
@@ -52,6 +54,23 @@ export default function SettingsDrawer({ open, onClose }) {
           <button onClick={onClose} className="text-text-dim hover:text-text-primary cursor-pointer"><X size={16} /></button>
         </div>
 
+        {/* Tab bar (only when authenticated) */}
+        {authenticated && (
+          <div className="flex border-b border-border shrink-0">
+            <button onClick={() => setDrawerTab('settings')}
+              className={`flex-1 mono text-[10px] font-bold uppercase tracking-wider py-2 text-center cursor-pointer transition-colors
+                ${drawerTab === 'settings' ? 'text-text-primary border-b-2 border-accent-blue' : 'text-text-dim hover:text-text-primary'}`}>
+              Settings
+            </button>
+            <button onClick={() => setDrawerTab('backtest')}
+              className={`flex-1 mono text-[10px] font-bold uppercase tracking-wider py-2 text-center cursor-pointer transition-colors
+                flex items-center justify-center gap-1
+                ${drawerTab === 'backtest' ? 'text-text-primary border-b-2 border-accent-green' : 'text-text-dim hover:text-text-primary'}`}>
+              <BarChart3 size={10} /> Backtest
+            </button>
+          </div>
+        )}
+
         {!checking && !authenticated && (
           <div className="flex-1 flex items-center justify-center px-6">
             <div className="w-full max-w-xs">
@@ -73,7 +92,13 @@ export default function SettingsDrawer({ open, onClose }) {
 
         {checking && <div className="flex-1 flex items-center justify-center"><div className="mono text-xs text-text-dim pulse-dot">Checking...</div></div>}
 
-        {authenticated && (
+        {authenticated && drawerTab === 'backtest' && (
+          <div className="flex-1 min-h-0">
+            <BacktestPanel open={true} />
+          </div>
+        )}
+
+        {authenticated && drawerTab === 'settings' && (
           <div className="flex-1 overflow-auto px-3 sm:px-4 py-3 space-y-4 sm:space-y-5">
             <div>
               <label className="text-xs text-text-dim uppercase tracking-wider font-semibold">Kill-Switch</label>

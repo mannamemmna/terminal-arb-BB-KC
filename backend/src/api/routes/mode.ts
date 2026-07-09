@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 
 export function createModeRouter(
-  getMode: () => 'demo' | 'live',
-  setMode: (mode: 'demo' | 'live', confirm?: string) => { ok: boolean; error?: string },
+  getMode: () => 'paper' | 'testnet' | 'live',
+  setMode: (mode: string, confirm?: string) => { ok: boolean; error?: string },
 ) {
   const router = Router();
 
@@ -12,8 +12,8 @@ export function createModeRouter(
 
   router.post('/', (req: Request, res: Response) => {
     const { mode, confirm } = req.body || {};
-    if (mode !== 'demo' && mode !== 'live') {
-      res.status(400).json({ error: 'Mode must be "demo" or "live"' });
+    if (!['paper', 'testnet', 'live'].includes(mode)) {
+      res.status(400).json({ error: 'Mode must be "paper", "testnet", or "live"' });
       return;
     }
     const result = setMode(mode, confirm);

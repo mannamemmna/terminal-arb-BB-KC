@@ -6,8 +6,10 @@ export function createAuthRouter(auth: AuthService) {
 
   // GET /api/auth/status — check if auth is configured & current session status
   router.get('/status', (req: Request, res: Response) => {
-    const token = (req.headers.authorization || '').startsWith('Bearer ')
-      ? req.headers.authorization.slice(7) : (req as any).cookies?.session_token || '';
+    const authHeader = req.headers.authorization ?? '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : (req.cookies?.session_token ?? '');
     const authenticated = auth.validateToken(token);
     res.json({
       hasPassword: auth.hasPassword,
@@ -44,8 +46,10 @@ export function createAuthRouter(auth: AuthService) {
 
   // POST /api/auth/logout
   router.post('/logout', (req: Request, res: Response) => {
-    const token = (req.headers.authorization || '').startsWith('Bearer ')
-      ? req.headers.authorization.slice(7) : (req as any).cookies?.session_token || '';
+    const authHeader = req.headers.authorization ?? '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : (req.cookies?.session_token ?? '');
     if (token) auth.logout(token);
     res.clearCookie('session_token');
     res.json({ ok: true });

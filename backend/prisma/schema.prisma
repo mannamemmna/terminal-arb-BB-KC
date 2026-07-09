@@ -13,13 +13,14 @@ model Config {
 }
 
 model Signal {
-  id         Int      @id @default(autoincrement())
-  symbol     String
-  message    String
-  verdict    String
-  spreadPct  Float
+  id          Int      @id @default(autoincrement())
+  symbol      String
+  message     String
+  verdict     String
+  spreadPct   Float
   fundingDiff Float
-  createdAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
   @@index([symbol, createdAt])
 }
 
@@ -35,6 +36,7 @@ model Trade {
   mode        String    @default("paper")
   createdAt   DateTime  @default(now())
   closedAt    DateTime?
+
   @@index([status, createdAt])
   @@index([mode])
 }
@@ -45,6 +47,7 @@ model HealthCheck {
   kucoin    String
   uptime    Int
   createdAt DateTime @default(now())
+
   @@index([createdAt])
 }
 
@@ -70,6 +73,7 @@ model Position {
   status         String    @default("OPEN")
   openedAt       DateTime  @default(now())
   closedAt       DateTime?
+
   @@index([status, mode])
 }
 
@@ -91,6 +95,7 @@ model Order {
   errorMessage   String?
   createdAt      DateTime @default(now())
   mode           String   @default("paper")
+
   @@index([positionId])
   @@index([mode])
 }
@@ -101,4 +106,54 @@ model PaperAccount {
   balance   Float    @default(10000)
   currency  String   @default("USDT")
   updatedAt DateTime @default(now())
+}
+
+model HistoricalCandle {
+  id        Int      @id @default(autoincrement())
+  exchange  String
+  symbol    String
+  interval  String
+  timestamp DateTime
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  @@unique([exchange, symbol, interval, timestamp])
+  @@index([symbol, interval, timestamp])
+}
+
+model HistoricalFunding {
+  id          Int      @id @default(autoincrement())
+  exchange    String
+  symbol      String
+  timestamp   DateTime
+  fundingRate Float
+
+  @@unique([exchange, symbol, timestamp])
+  @@index([symbol, timestamp])
+}
+
+model BacktestRun {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  status          String
+  paramsJson      String
+  resultsJson     String?
+  equityCurveJson String?
+}
+
+model BacktestTrade {
+  id          Int      @id @default(autoincrement())
+  runId       String
+  symbol      String
+  entryAt     DateTime
+  exitAt      DateTime
+  entrySpread Float
+  exitSpread  Float
+  spreadPnl   Float
+  fundingPnl  Float
+  feesPaid    Float
+  totalPnl    Float
 }

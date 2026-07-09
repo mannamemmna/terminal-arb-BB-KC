@@ -28,6 +28,7 @@ import { createKillSwitchRouter } from './api/routes/killSwitch.js';
 import { createAccountRouter } from './api/routes/account.js';
 import { createOrdersRouter } from './api/routes/orders.js';
 import { createPositionsRouter } from './api/routes/positions.js';
+import { createBacktestRouter } from './api/routes/backtest.js';
 import { createAuthRouter } from './api/routes/auth.js';
 import { createWsHealthRouter } from './api/routes/wsHealth.js';
 import prisma from './db/client.js';
@@ -282,6 +283,7 @@ async function main() {
   app.use('/api/account', createAccountRouter(bybitTrader, kucoinTrader));
   app.use('/api/orders', createOrdersRouter());
   app.use('/api/positions', createPositionsRouter(orchestrator));
+  app.use('/api/backtest', createBacktestRouter());
 
   // Health
   app.use('/api/health', (req: Request, res: Response, next: any) => {
