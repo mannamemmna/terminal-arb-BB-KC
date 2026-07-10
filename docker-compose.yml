@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spread-arb-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - SETTINGS_PASSWORD=${SETTINGS_PASSWORD}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - DATABASE_URL=file:./dev.db
+      # Bybit
+      - BYBIT_API_KEY=${BYBIT_API_KEY}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET}
+      - BYBIT_TESTNET_API_KEY=${BYBIT_TESTNET_API_KEY}
+      - BYBIT_TESTNET_API_SECRET=${BYBIT_TESTNET_API_SECRET}
+      # KuCoin
+      - KUCOIN_API_KEY=${KUCOIN_API_KEY}
+      - KUCOIN_API_SECRET=${KUCOIN_API_SECRET}
+      - KUCOIN_PASSPHRASE=${KUCOIN_PASSPHRASE}
+      - KUCOIN_TESTNET_API_KEY=${KUCOIN_TESTNET_API_KEY}
+      - KUCOIN_TESTNET_API_SECRET=${KUCOIN_TESTNET_API_SECRET}
+      - KUCOIN_TESTNET_PASSPHRASE=${KUCOIN_TESTNET_PASSPHRASE}
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spread-arb-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:
