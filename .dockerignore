@@ -17,6 +17,5 @@ coverage
 .turbo
 Dockerfile
 docker-compose.yml
-nginx.conf
 *.md
 !README.md
