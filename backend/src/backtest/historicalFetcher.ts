@@ -1,5 +1,5 @@
 import { config } from '../config/index.js';
-import { getByBybit, getByKucoin } from '../engine/symbolMapper.js';
+import { getByStandard } from '../engine/symbolMapper.js';
 import prisma from '../db/client.js';
 
 interface CandleInput {
@@ -127,7 +127,7 @@ async function fetchKucoinFunding(symbol: string, from: number, to: number): Pro
   const json = await res.json() as any;
   if (json.code !== '200000') throw new Error(`KuCoin funding error: ${json.msg}`);
   return json.data.map((item: any) => ({
-    timestamp: new Date(item.timestamp),
+    timestamp: new Date(item.timepoint),
     fundingRate: parseFloat(item.fundingRate),
   }));
 }
@@ -174,8 +174,8 @@ export async function fetchSymbolHistory(
   endDate: Date,
   batchDays = 7
 ): Promise<void> {
-  const bybitSymbol = getByBybit(standardSymbol)?.bybit || standardSymbol;
-  const kucoinSymbol = getByKucoin(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM');
+  const bybitSymbol = getByStandard(standardSymbol)?.bybit || standardSymbol;
+  const kucoinSymbol = getByStandard(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM');
 
   const intervalMap: Record<string, { bybit: string; kucoin: number }> = {
     '5m': { bybit: '5', kucoin: 5 },
@@ -200,7 +200,7 @@ export async function fetchSymbolHistory(
         (async () => {
           try {
             const data = await fetchBybitKlines(
-              getByBybit(standardSymbol)?.bybit || standardSymbol,
+              getByStandard(standardSymbol)?.bybit || standardSymbol,
               bybitInterval,
               startMs,
               endMs
@@ -220,7 +220,7 @@ export async function fetchSymbolHistory(
         })(),
         (async () => {
           try {
-            const kucoinSym = getByKucoin(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM');
+            const kucoinSym = getByStandard(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM');
             const data = await fetchKucoinKlines(kucoinSym, intervalMap[interval]?.kucoin || 5, startMs, endMs);
             return data.map((c: any) => ({
               exchange: 'kucoin' as const,
@@ -247,12 +247,12 @@ export async function fetchSymbolHistory(
     try {
       const [bybitFunding, kucoinFunding] = await Promise.all([
         fetchBybitFunding(
-          getByBybit(standardSymbol)?.bybit || standardSymbol,
+          getByStandard(standardSymbol)?.bybit || standardSymbol,
           startMs,
           endMs
         ),
         fetchKucoinFunding(
-          getByKucoin(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM'),
+          getByStandard(standardSymbol)?.kucoin || standardSymbol.replace('USDT', 'USDTM'),
           startMs,
           endMs
         ),

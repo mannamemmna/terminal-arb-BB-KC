@@ -166,7 +166,10 @@ export function checkEntrySignal(
   minSpreadPct: number,
   minFundingDiffPct: number
 ): { verdict: 'SAFE' | 'WATCH' | 'SKIP'; shouldEnter: boolean } {
-  if (spreadPct > minSpreadPct && Math.abs(fundingDiffPct) > minFundingDiffPct) {
+  const fundingCheck = minFundingDiffPct > 0 
+    ? Math.abs(fundingDiffPct) >= minFundingDiffPct 
+    : true;
+  if (spreadPct > minSpreadPct && fundingCheck) {
     return { verdict: 'SAFE', shouldEnter: true };
   } else if (spreadPct > minSpreadPct * 0.6) {
     return { verdict: 'WATCH', shouldEnter: false };

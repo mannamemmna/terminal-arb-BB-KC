@@ -80,5 +80,18 @@ export function createBacktestRouter() {
     });
   });
 
+  // Parameter sweep
+  router.post('/sweep', async (req: Request, res: Response) => {
+    const { baseParams, grid } = req.body || {};
+    if (!baseParams?.pairs?.length || !baseParams?.startDate || !baseParams?.endDate || !grid) {
+      res.status(400).json({ error: 'baseParams (pairs[], startDate, endDate) and grid required' });
+      return;
+    }
+
+    const { runParameterSweep } = await import('../../backtest/backtestEngine.js');
+    res.json({ ok: true, message: 'Sweep started, check /api/backtest for results' });
+    runParameterSweep(baseParams, grid).catch(console.error);
+  });
+
   return router;
 }
