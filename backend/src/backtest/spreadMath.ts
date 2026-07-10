@@ -191,7 +191,7 @@ export interface ExitCheckInput {
 }
 
 export function checkExitConditions(input: ExitCheckInput): { shouldExit: boolean; reason: string } {
-  const { currentSpreadPct, entrySpreadPct, hoursHeld, maxHoldHours, tpSpreadPct, slSpreadPct } = input;
+  const { currentSpreadPct, entrySpreadPct, fundingDiffPct, hoursHeld, maxHoldHours, tpSpreadPct, slSpreadPct } = input;
 
   // Take profit: spread reverted significantly
   if (tpSpreadPct && input.currentSpreadPct <= tpSpreadPct) {
@@ -217,7 +217,7 @@ export function checkExitConditions(input: ExitCheckInput): { shouldExit: boolea
 }
 
 /**
- * Calculate equity point from PnL array
+ * Calculate equity curve from trades
  */
 export function calcEquityCurve(trades: Array<{ pnl: number; timestamp: number }>, startingBalance: number = 10000): Array<{ timestamp: number; equity: number }> {
   let equity = startingBalance;
@@ -225,4 +225,176 @@ export function calcEquityCurve(trades: Array<{ pnl: number; timestamp: number }
     equity += t.pnl;
     return { timestamp: t.timestamp, equity };
   });
+}
+
+export interface RollingStats {
+  mean: number;
+  std: number;
+  count: number;
+}
+
+/**
+ * Rolling window for per-symbol spread tracking
+ * Use this in SpreadCalculator for live z-score tracking
+ */
+export class RollingWindow {
+  private values: number[] = [];
+  private maxSize: number;
+  private sum = 0;
+  private sumSq = 0;
+
+  constructor(maxSize: number = 100) {
+    this.maxSize = maxSize;
+  }
+
+  push(value: number): void {
+    this.values.push(value);
+    this.sum += value;
+    this.sumSq += value * value;
+
+    if (this.values.length > this.maxSize) {
+      const removed = this.values.shift()!;
+      this.sum -= removed;
+      this.sumSq -= removed * removed;
+    }
+  }
+
+  getStats(): RollingStats {
+    const count = this.values.length;
+    const mean = count > 0 ? this.sum / count : 0;
+    const variance = count > 1 ? (this.sumSq / count) - (mean * mean) : 0;
+    const std = count > 1 ? Math.sqrt(Math.max(0, variance)) : 0;
+    return { mean, std, count };
+  }
+
+  calcZScore(value: number): { zScore: number; stats: RollingStats } {
+    const stats = this.getStats();
+    const zScore = stats.std > 0 ? (value - stats.mean) / stats.std : 0;
+    return { zScore, stats };
+  }
+
+  size(): number {
+    return this.values.length;
+  }
+
+  reset(): void {
+    this.values = [];
+    this.sum = 0;
+    this.sumSq = 0;
+  }
+}
+
+/**
+ * Opportunity classification based on spread behavior
+ */
+export type OpportunityType = 'mean_reversion' | 'funding_arbitrage' | 'hybrid' | 'none';
+
+export interface OpportunityClassification {
+  type: OpportunityType;
+  zScore: number;
+  spreadPct: number;
+  fundingDiffPct: number;
+  confidence: number; // 0-1
+  reason: string;
+}
+
+/**
+ * Classify the opportunity type based on spread behavior and funding
+ * - mean_reversion: high z-score spread, low funding diff → expect reversion
+ * - funding_arbitrage: low z-score spread, high funding diff → collect funding
+ * - hybrid: both significant → combined edge
+ * - none: no clear edge
+ */
+export function classifyOpportunity(
+  spreadPct: number,
+  fundingDiffPct: number,
+  spreadZScore: number,
+  thresholds: {
+    zScoreEntry: number;      // e.g., 2.0
+    zScoreExit: number;       // e.g., 0.5
+    fundingDiffMin: number;   // e.g., 0.01% (0.0001 in decimal)
+    spreadPctMin: number;     // e.g., 0.1%
+  }
+): OpportunityClassification {
+  const absZScore = Math.abs(spreadZScore);
+  const absFundingDiff = Math.abs(fundingDiffPct);
+  
+  // No opportunity if spread too small
+  if (spreadPct < thresholds.spreadPctMin) {
+    return {
+      type: 'none',
+      zScore: spreadZScore,
+      spreadPct,
+      fundingDiffPct,
+      confidence: 0,
+      reason: `Spread ${spreadPct.toFixed(4)}% below minimum ${thresholds.spreadPctMin}%`
+    };
+  }
+
+  const highZScore = absZScore >= thresholds.zScoreEntry;
+  const significantFunding = absFundingDiff >= thresholds.fundingDiffMin;
+
+  let type: OpportunityType;
+  let confidence: number;
+  let reason: string;
+
+  if (highZScore && significantFunding) {
+    type = 'hybrid';
+    confidence = Math.min(0.95, (absZScore / thresholds.zScoreEntry) * 0.5 + (absFundingDiff / thresholds.fundingDiffMin) * 0.5);
+    reason = `Hybrid: z-score=${spreadZScore.toFixed(2)}, fundingDiff=${fundingDiffPct.toFixed(4)}%`;
+  } else if (highZScore) {
+    type = 'mean_reversion';
+    confidence = Math.min(0.9, absZScore / thresholds.zScoreEntry);
+    reason = `Mean reversion: z-score=${spreadZScore.toFixed(2)}`;
+  } else if (significantFunding) {
+    type = 'funding_arbitrage';
+    confidence = Math.min(0.85, absFundingDiff / thresholds.fundingDiffMin);
+    reason = `Funding arb: fundingDiff=${fundingDiffPct.toFixed(4)}%`;
+  } else {
+    type = 'none';
+    confidence = 0;
+    reason = `No clear edge: z-score=${spreadZScore.toFixed(2)}, fundingDiff=${fundingDiffPct.toFixed(4)}%`;
+  }
+
+  return { type, zScore: spreadZScore, spreadPct, fundingDiffPct, confidence, reason };
+}
+
+/**
+ * Calculate exit target based on opportunity type
+ */
+export function calcExitTarget(
+  entrySpread: number,
+  entryZScore: number,
+  opportunityType: OpportunityType,
+  zScoreExit: number = 0.5
+): { targetSpread: number; targetZScore: number; reason: string } {
+  switch (opportunityType) {
+    case 'mean_reversion':
+      // Target z-score reversion to exit level
+      return {
+        targetSpread: 0, // Full reversion
+        targetZScore: entryZScore > 0 ? 0.5 : -0.5,
+        reason: `Mean reversion target z=0.5`
+      };
+    case 'funding_arbitrage':
+      // Hold for funding, exit on spread widening or funding change
+      return {
+        targetSpread: entrySpread * 1.5, // Stop if spread widens 50%
+        targetZScore: 0,
+        reason: 'Funding arb: exit on spread widening or funding shift'
+      };
+    case 'hybrid':
+      // Balanced: exit on either mean reversion or funding shift
+      return {
+        targetSpread: entrySpread * 0.3, // 70% reversion
+        targetZScore: entryZScore > 0 ? 0.5 : -0.5,
+        reason: 'Hybrid: exit on reversion or funding shift'
+      };
+    default:
+      return {
+        targetSpread: entrySpread * 0.5,
+        targetZScore: 0,
+        reason: 'Default exit'
+      };
+  }
 }

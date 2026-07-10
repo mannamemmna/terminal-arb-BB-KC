@@ -1,5 +1,6 @@
 import { defaultThresholds, type ThresholdConfig } from '../config/thresholds.js';
 import type { SpreadResult, SignalLog } from '../connectors/types.js';
+import { calcSpreadPct, calcSpread, classifyOpportunity, RollingWindow, type OpportunityClassification } from '../backtest/spreadMath.js';
 
 export interface MarketSnapshot {
   symbol: string;
@@ -23,6 +24,7 @@ export class SpreadCalculator {
   private signalCb: SignalCallback | null = null;
   private lastEmit = new Map<string, number>();
   private lastSignal = new Map<string, number>();
+  private zScoreWindows = new Map<string, RollingWindow>();
 
   thresholds: ThresholdConfig = { ...defaultThresholds };
 
@@ -123,26 +125,68 @@ export class SpreadCalculator {
     for (const cb of this.changeCbs) cb(symbol);
   }
 
+  private getZScoreWindow(symbol: string): RollingWindow {
+    let window = this.zScoreWindows.get(symbol);
+    if (!window) {
+      // Window size based on threshold config (e.g., 168 hours / 5min = 2016 bars, cap at 2000)
+      const windowSize = Math.min(2000, Math.max(100, Math.floor((this.thresholds.zScoreWindowHours || 168) * 12)));
+      window = new RollingWindow(windowSize);
+      this.zScoreWindows.set(symbol, window);
+    }
+    return window;
+  }
+
   private calc(snap: MarketSnapshot): SpreadResult | null {
     const bp = snap.bybitPrice!, kp = snap.kucoinPrice!;
     const mid = (bp + kp) / 2;
     if (mid === 0) return null;
     // Sanity check: reject extreme outliers (>50% spread = data mismatch)
     if (Math.abs(bp - kp) / mid > 0.5) return null;
+
+    const spreadPct = Math.abs(bp - kp) / mid * 100;
+    const fundingDiff = (snap.bybitFunding ?? 0) - (snap.kucoinFunding ?? 0);
+
+    // Get or create z-score window for this symbol
+    const zWindow = this.getZScoreWindow(snap.symbol);
+    zWindow.push(spreadPct);
+    const { zScore, stats } = zWindow.calcZScore(spreadPct);
+
+    // Classify opportunity
+    const classification = classifyOpportunity(
+      spreadPct,
+      fundingDiff * 100, // convert to percentage
+      zScore,
+      {
+        zScoreEntry: this.thresholds.zScoreEntryThreshold || 2.0,
+        zScoreExit: this.thresholds.zScoreExitThreshold || 0.5,
+        fundingDiffMin: this.thresholds.minFundingDiff || 0.0001,
+        spreadPctMin: this.thresholds.spreadThreshold || 0.1,
+      }
+    );
+
+    // Determine verdict based on new strategy
+    let verdict: 'SAFE' | 'WATCH' | 'SKIP' = 'SKIP';
+    if (classification.type !== 'none' && classification.confidence >= 0.6) {
+      verdict = 'SAFE';
+    } else if (spreadPct > (this.thresholds.spreadThreshold || 0.1) * 0.6) {
+      verdict = 'WATCH';
+    }
+
     return {
       symbol: snap.symbol,
       bybitPrice: +bp.toFixed(2),
       kucoinPrice: +kp.toFixed(2),
-      spreadPct: +(Math.abs(bp - kp) / mid * 100).toFixed(4),
+      spreadPct: +spreadPct.toFixed(4),
       spreadPrice: +Math.abs(bp - kp).toFixed(2),
       fundingBybit: +(snap.bybitFunding ?? 0).toFixed(6),
       fundingKucoin: +(snap.kucoinFunding ?? 0).toFixed(6),
-      fundingDiff: +((snap.bybitFunding ?? 0) - (snap.kucoinFunding ?? 0)).toFixed(6),
+      fundingDiff: +fundingDiff.toFixed(6),
       volume24h: Math.max(snap.bybitVolume ?? 0, snap.kucoinVolume ?? 0),
-      verdict: snap.bybitPrice !== null && snap.kucoinPrice !== null
-        ? (Math.abs(bp - kp) / mid * 100 > this.thresholds.spreadThreshold && Math.abs((snap.bybitFunding ?? 0) - (snap.kucoinFunding ?? 0)) > this.thresholds.minFundingDiff
-          ? 'SAFE' : Math.abs(bp - kp) / mid * 100 > this.thresholds.spreadThreshold * 0.6 ? 'WATCH' : 'SKIP')
-        : 'SKIP',
+      verdict,
+      opportunityType: classification.type,
+      zScore: +zScore.toFixed(2),
+      confidence: +classification.confidence.toFixed(2),
+      reason: classification.reason,
       timestamp: Date.now(),
     };
   }

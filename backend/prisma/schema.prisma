@@ -73,6 +73,7 @@ model Position {
   status         String    @default("OPEN")
   openedAt       DateTime  @default(now())
   closedAt       DateTime?
+  opportunityType String?  @default("mean_reversion")
 
   @@index([status, mode])
 }
@@ -156,4 +157,18 @@ model BacktestTrade {
   fundingPnl  Float
   feesPaid    Float
   totalPnl    Float
+}
+
+model ApiCredential {
+  id            Int      @id @default(autoincrement())
+  exchange      String   // 'bybit' | 'kucoin'
+  mode          String   // 'testnet' | 'live'
+  apiKeyEnc     String   // encrypted
+  apiSecretEnc  String   // encrypted
+  passphraseEnc String?  // encrypted, KuCoin only
+  isValid       Boolean  @default(false)
+  lastValidated DateTime?
+  updatedAt     DateTime @updatedAt
+
+  @@unique([exchange, mode])
 }

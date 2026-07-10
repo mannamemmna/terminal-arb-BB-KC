@@ -31,6 +31,7 @@ import { createPositionsRouter } from './api/routes/positions.js';
 import { createBacktestRouter } from './api/routes/backtest.js';
 import { createAuthRouter } from './api/routes/auth.js';
 import { createWsHealthRouter } from './api/routes/wsHealth.js';
+import { createCredentialsRouter } from './api/routes/credentials.js';
 import prisma from './db/client.js';
 
 // ---- Mode management (3 modes) ----
@@ -264,6 +265,7 @@ async function main() {
 
   // ===== API routes =====
   app.use('/api/auth', createAuthRouter(auth));
+  app.use('/api/credentials', createCredentialsRouter(auth));
   app.use('/api/pairs', createPairsRouter(calculator));
   app.use('/api/spreads', createSpreadsRouter(calculator));
   app.use('/api/history', createHistoryRouter());

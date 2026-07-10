@@ -13,7 +13,18 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "downlevelIteration": true
+    "downlevelIteration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@config/*": ["src/config/*"],
+      "@middleware/*": ["src/api/middleware/*"],
+      "@routes/*": ["src/api/routes/*"],
+      "@db/*": ["src/db/*"],
+      "@connectors/*": ["src/connectors/*"],
+      "@engine/*": ["src/engine/*"],
+      "@backtest/*": ["src/backtest/*"],
+      "@ws/*": ["src/ws/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

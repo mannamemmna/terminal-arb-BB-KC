@@ -29,15 +29,16 @@ export class ExecutionOrchestrator {
     this.busy.add(sym);
 
     try {
-      // Check sizing
-      const sizing = await this.positionManager.canEnter(sym, spread.bybitPrice);
+      // Check sizing with new strategy parameters
+      const opportunityType = spread.opportunityType || 'mean_reversion';
+      const sizing = await this.positionManager.canEnter(sym, spread.bybitPrice, opportunityType, spread.zScore ? Math.abs(spread.zScore) / 10 : undefined);
       if (!sizing.canEnter) {
         this.onLog(`[SKIP] ${sym}: ${sizing.reason}`);
         return false;
       }
 
       const size = sizing.size;
-      const leverage = this.positionManager.leverage;
+      const leverage = this.positionManager.getLeverage();
 
       // Determine sides
       const bybitSide = spread.fundingDiff > 0 ? 'BUY' as const : 'SELL' as const;
@@ -100,7 +101,8 @@ export class ExecutionOrchestrator {
         },
       });
 
-      this.positionManager.incrementPosition();
+      // Add position to position manager
+      this.positionManager.addPosition(sym, bybitPosSide as 'LONG' | 'SHORT', size, entryPriceBybit, opportunityType);
       this.onLog(`[OPEN] ${sym}: Position ${position.id} opened`);
 
       // Save to trades table too
@@ -147,7 +149,8 @@ export class ExecutionOrchestrator {
       data: { status: 'CLOSED', exitSpread, pnl: realizedPnl, closedAt: new Date() },
     });
 
-    this.positionManager.decrementPosition();
+    // Remove from position manager
+    this.positionManager.removePosition(sym);
     this.onLog(`[CLOSE] ${sym}: PnL $${realizedPnl.toFixed(2)}`);
     return true;
   }

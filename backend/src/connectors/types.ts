@@ -35,6 +35,10 @@ export interface SpreadResult {
   fundingDiff: number;
   volume24h: number;
   verdict: 'SAFE' | 'WATCH' | 'SKIP';
+  opportunityType?: 'mean_reversion' | 'funding_arbitrage' | 'hybrid' | 'none';
+  zScore?: number;
+  confidence?: number;
+  reason?: string;
   timestamp: number;
 }
 
